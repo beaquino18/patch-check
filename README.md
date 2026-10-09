@@ -1,5 +1,18 @@
 # Final Project
 
+## About StillSafe
+
+StillSafe is a personal security-support dashboard for tracking phones, laptops, tablets, and
+routers. It helps users see whether each device still receives security updates and identify
+which devices should be upgraded or replaced.
+
+The dashboard groups devices into four support states:
+
+- **Supported** — security support continues beyond the next six months
+- **Ending soon** — support is expected to end within six months
+- **Unsupported** — the published support date has passed
+- **Unknown** — no support date is available
+
 ### What it does
 
 A personal dashboard that lets people track whether their phones, laptops, tablets and routers
