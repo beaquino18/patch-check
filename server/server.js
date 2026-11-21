@@ -1,5 +1,10 @@
+import 'dotenv/config'
+import mongoose from 'mongoose';
 import { ApolloServer } from "@apollo/server"; 
 import { startStandaloneServer } from '@apollo/server/standalone'
+
+await mongoose.connect(process.env.MONGO_URI)
+console.log('Connected to MongoDB')
 
 const owners = [
   {
