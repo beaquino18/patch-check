@@ -102,42 +102,42 @@ function getStatus(model) {
 
 const resolvers = {
   Query: {
-    allOwners: async () => await Owner.find(),
-    getOwner: async (_, { id }) => await Owner.findById(id),
-    allDevices: async () => await Device.find(),
-    getDevice: async(_, { id }) => await Device.findById(id),
-    getDevicesByStatus: async (_, { status }) => {
-      const matchingModels = (await Model.find()).filter((model) =>
+    allOwners: async (_, __, context) => await context.Owner.find(),
+    getOwner: async (_, { id }, context) => await context.Owner.findById(id),
+    allDevices: async (_, __, context) => await context.Device.find(),
+    getDevice: async(_, { id }, context) => await context.Device.findById(id),
+    getDevicesByStatus: async (_, { status }, context) => {
+      const matchingModels = (await context.Model.find()).filter((model) =>
         getStatus(model) === status)
       const modelIds = matchingModels.map((model) => model.id)
-      return await Device.find({ modelId: { $in: modelIds } })
+      return await context.Device.find({ modelId: { $in: modelIds } })
     },
-    getDevicesByOwner: async (_, { ownerId }) => await Device.find({ ownerId }),
-    allModels: async () => await Model.find(),
-    deviceCount: async () => await Device.countDocuments(),
+    getDevicesByOwner: async (_, { ownerId }, context) => await context.Device.find({ ownerId }),
+    allModels: async (_, __, context) => await context.Model.find(),
+    deviceCount: async (_, __, context) => await context.Device.countDocuments(),
   },
 
   Owner: {
-    devices: async (parent) => await Device.find({ ownerId: parent.id }), 
+    devices: async (parent, __, context) => await context.Device.find({ ownerId: parent.id }), 
   },
 
   Device: {
-    owner: async (parent) => await Owner.findById(parent.ownerId),
-    model: async (parent) => await Model.findById(parent.modelId) 
+    owner: async (parent, __, context) => await context.Owner.findById(parent.ownerId),
+    model: async (parent, __, context) => await context.Model.findById(parent.modelId) 
   },
 
   Model: {
     status: async (parent) => getStatus(parent),
   },
   Mutation: {
-    addOwner: async (_, { name }) => Owner.create({ name}),
-    updateOwner: async (_, { id, name }) => 
-      await Owner.findByIdAndUpdate(id, { name }, { new: true}),
-    addModel: async (_, { company, product, version, supportEndsOn }) =>
-      await Model.create({ company, product, version, supportEndsOn }),
-    addDevice: async (_, { nickname, ownerId, modelId, purchasedOn }) => {
-      const owner = await Owner.findById(ownerId)
-      const model = await Model.findById(modelId)
+    addOwner: async (_, { name }, context) => context.Owner.create({ name}),
+    updateOwner: async (_, { id, name }, context) => 
+      await context.Owner.findByIdAndUpdate(id, { name }, { new: true}),
+    addModel: async (_, { company, product, version, supportEndsOn }, context) =>
+      await context.Model.create({ company, product, version, supportEndsOn }),
+    addDevice: async (_, { nickname, ownerId, modelId, purchasedOn }, context) => {
+      const owner = await context.Owner.findById(ownerId)
+      const model = await context.Model.findById(modelId)
 
       if (!owner) {
         throw new Error("Owner not found")
@@ -146,21 +146,21 @@ const resolvers = {
       if (!model) {
         throw new Error("Model not found")
       }
-      const device = Device.create({nickname, ownerId, modelId, purchasedOn })
+      const device = context.Device.create({nickname, ownerId, modelId, purchasedOn })
       return await device
     },
-    deleteDevice: async (_, { id }) => {
-      const result = await Device.findByIdAndDelete(id)
+    deleteDevice: async (_, { id }, context) => {
+      const result = await context.Device.findByIdAndDelete(id)
       return await result !== null
     },
-    updateDevice: async (_, { id, nickname, ownerId, modelId, purchasedOn}) => {
+    updateDevice: async (_, { id, nickname, ownerId, modelId, purchasedOn}, context) => {
       const update = {}
 
       if (nickname !== undefined) update.nickname = nickname
       if (purchasedOn !== undefined) update.purchasedOn = purchasedOn
 
       if (ownerId !== undefined) {
-        const owner = await Owner.findById(ownerId)
+        const owner = await context.Owner.findById(ownerId)
         if (!owner) {
           throw new Error("Owner not found")
         }
@@ -168,14 +168,14 @@ const resolvers = {
       }
 
       if (modelId !== undefined) {
-        const model = await Model.findById(modelId)
+        const model = await context.Model.findById(modelId)
         if (!model) {
           throw new Error("Model not found")
         }
         update.modelId = modelId
       }
       
-      const device = Device.findByIdAndUpdate(id, update, { new: true})
+      const device = context.Device.findByIdAndUpdate(id, update, { new: true})
       return await device
     }
   }
@@ -183,7 +183,8 @@ const resolvers = {
 
 const server = new ApolloServer({ typeDefs, resolvers })
 const { url } = await startStandaloneServer(server, {
-  listen: { port:4000 }
+  listen: { port:4000 },
+  context: async () => ({ Owner, Model, Device })
 })
 
 console.log(`Server ready at: ${url}`)
