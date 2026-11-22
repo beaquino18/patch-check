@@ -1,83 +1,13 @@
 import 'dotenv/config'
 import mongoose from 'mongoose';
+import Owner from './src/models/Owner.js';
+import Model from './src/models/Model.js';
+import Device from './src/models/Device.js';
 import { ApolloServer } from "@apollo/server"; 
 import { startStandaloneServer } from '@apollo/server/standalone'
 
 await mongoose.connect(process.env.MONGO_URI)
 console.log('Connected to MongoDB')
-
-const owners = [
-  {
-    id: "1",
-    name: "Bea",
-  },
-  {
-    id: "2",
-    name: "Alex",
-  },
-]
-
-const models = [
-  {
-    id: "1",
-    company: "Apple",
-    product: "iPhone",
-    version: "15",
-    supportEndsOn: "2029-09-01",
-  },
-  {
-    id: "2",
-    company: "Google",
-    product: "Pixel",
-    version: "7",
-    supportEndsOn: "2025-12-31",
-  },
-  {
-    id: "3",
-    company: "Example Router Co.",
-    product: "Home Router",
-    version: "R1",
-    supportEndsOn: null,
-  },
-  {
-    id: "4",
-    company: "Samsung",
-    product: "Galaxy Tab",
-    version: "S8",
-    supportEndsOn: "2027-01-15",
-  },
-]
-
-const devices = [
-  {
-    id: "1",
-    nickname: "Bea's Phone",
-    purchasedOn: "2024-01-15",
-    ownerId: "1",
-    modelId: "1",
-  },
-  {
-    id: "2",
-    nickname: "Alex's Phone",
-    purchasedOn: "2022-08-10",
-    ownerId: "2",
-    modelId: "2",
-  },
-  {
-    id: "3",
-    nickname: "Living Room Router",
-    purchasedOn: null,
-    ownerId: "1",
-    modelId: "3",
-  },
-  {
-    id: "4",
-    nickname: "Alex's Tablet",
-    purchasedOn: "2023-06-15",
-    ownerId: "2",
-    modelId: "4",
-  },
-]
 
 const typeDefs = `#graphql
   enum SupportStatus {
@@ -147,15 +77,6 @@ const typeDefs = `#graphql
   }
 `
 
-function getNextId(records) {
-  const highestId = records.reduce(
-    (highest, record) => Math.max(highest, Number(record.id)),
-    0,
-  )
-
-  return String(highestId + 1)
-}
-
 function getStatus(model) {
   if (!model.supportEndsOn) {
     return "UNKNOWN"
@@ -181,60 +102,42 @@ function getStatus(model) {
 
 const resolvers = {
   Query: {
-    allOwners: () => owners,
-    getOwner:(_, { id }) => owners.find(o => o.id === id),
-    allDevices: () => devices,
-    getDevice:(_, { id }) => devices.find(d => d.id === id),
-    getDevicesByStatus: (_, { status }) =>
-      devices.filter((device) => {
-        const model = models.find((model) => model.id === device.modelId)
-        return model && getStatus(model) === status
-      }),
-    getDevicesByOwner: (_, { ownerId }) =>
-      devices.filter((device) => device.ownerId === ownerId),
-    allModels: () => models,
-    deviceCount: () => devices.length,
+    allOwners: async () => await Owner.find(),
+    getOwner: async (_, { id }) => await Owner.findById(id),
+    allDevices: async () => await Device.find(),
+    getDevice: async(_, { id }) => await Device.findById(id),
+    getDevicesByStatus: async (_, { status }) => {
+      const matchingModels = (await Model.find()).filter((model) =>
+        getStatus(model) === status)
+      const modelIds = matchingModels.map((model) => model.id)
+      return await Device.find({ modelId: { $in: modelIds } })
+    },
+    getDevicesByOwner: async (_, { ownerId }) => await Device.find({ ownerId }),
+    allModels: async () => await Model.find(),
+    deviceCount: async () => await Device.countDocuments(),
   },
 
   Owner: {
-    devices: (parent) => 
-      devices.filter((device) => device.ownerId === parent.id), 
+    devices: async (parent) => await Device.find({ ownerId: parent.id }), 
   },
 
   Device: {
-    owner: (parent) =>
-      owners.find((owner) => owner.id === parent.ownerId),
-    model: (parent) => 
-      models.find((model) => model.id === parent.modelId),
+    owner: async (parent) => await Owner.findById(parent.ownerId),
+    model: async (parent) => await Model.findById(parent.modelId) 
   },
 
   Model: {
-    status: (parent) => getStatus(parent),
+    status: async (parent) => getStatus(parent),
   },
   Mutation: {
-    addOwner: (_, { name }) => {
-      const owner = { id: getNextId(owners), name }
-      owners.push(owner)
-      return owner
-    },
-    updateOwner: (_, { id, name }) => {
-      const owner = owners.find((owner) => owner.id === id)
-
-      if (!owner) {
-        return null
-      }
-
-      owner.name = name
-      return owner
-    },
-    addModel: (_, { company, product, version, supportEndsOn }) => {
-      const model = { id: getNextId(models), company, product, version, supportEndsOn }
-      models.push(model)
-      return model
-    },
-    addDevice: (_, { nickname, ownerId, modelId, purchasedOn }) => {
-      const owner = owners.find((owner) => owner.id === ownerId)
-      const model = models.find((model) => model.id === modelId)
+    addOwner: async (_, { name }) => Owner.create({ name}),
+    updateOwner: async (_, { id, name }) => 
+      await Owner.findByIdAndUpdate(id, { name }, { new: true}),
+    addModel: async (_, { company, product, version, supportEndsOn }) =>
+      await Model.create({ company, product, version, supportEndsOn }),
+    addDevice: async (_, { nickname, ownerId, modelId, purchasedOn }) => {
+      const owner = await Owner.findById(ownerId)
+      const model = await Model.findById(modelId)
 
       if (!owner) {
         throw new Error("Owner not found")
@@ -243,54 +146,37 @@ const resolvers = {
       if (!model) {
         throw new Error("Model not found")
       }
-
-      const device = { id: getNextId(devices), nickname, ownerId, modelId, purchasedOn }
-      devices.push(device)
-      return device
+      const device = Device.create({nickname, ownerId, modelId, purchasedOn })
+      return await device
     },
-    deleteDevice: (_, { id }) => {
-      const deviceIndex = devices.findIndex((device) => device.id === id)
-
-      if (deviceIndex === -1) {
-        return false
-      }
-
-      devices.splice(deviceIndex, 1)
-      return true
+    deleteDevice: async (_, { id }) => {
+      const result = await Device.findByIdAndDelete(id)
+      return await result !== null
     },
-    updateDevice: (_, { id, nickname, ownerId, modelId, purchasedOn}) => {
-      const device = devices.find((device) => device.id === id)
+    updateDevice: async (_, { id, nickname, ownerId, modelId, purchasedOn}) => {
+      const update = {}
 
-      if (!device) {
-        return null
-      }
-
-      if (nickname !== undefined) {
-        device.nickname = nickname
-      }
+      if (nickname !== undefined) update.nickname = nickname
+      if (purchasedOn !== undefined) update.purchasedOn = purchasedOn
 
       if (ownerId !== undefined) {
-        const owner = owners.find((owner) => owner.id === ownerId)
+        const owner = await Owner.findById(ownerId)
         if (!owner) {
           throw new Error("Owner not found")
         }
-        device.ownerId = ownerId
+        update.ownerId = ownerId
       }
 
       if (modelId !== undefined) {
-        const model = models.find((model) => model.id === modelId)
-
+        const model = await Model.findById(modelId)
         if (!model) {
           throw new Error("Model not found")
         }
-        device.modelId = modelId  
+        update.modelId = modelId
       }
       
-      if (purchasedOn !== undefined) {
-        device.purchasedOn = purchasedOn
-      }
-      
-      return device
+      const device = Device.findByIdAndUpdate(id, update, { new: true})
+      return await device
     }
   }
 }
